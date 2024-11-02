@@ -7,3 +7,11 @@ __snapshots__
 @generated
 node_modules
 .idea/
+# all node modules nested in the project
+**/node_modules
+# all .env files
+.env
+#all nested .env files
+**/.env
+# all nested python poetry files
+**/.venv
