@@ -43,6 +43,13 @@ python-dotenv = "^1.0.1"
 uvicorn = "^0.31.0"
 requests = "^2.32.3"
 html2text = "^2024.2.26"
+telethon = "^1.37.0"
+aiosqlite = "^0.20.0"
+sqlalchemy = "^2.0.36"
+google-cloud-bigquery = "^3.26.0"
+google-auth = "^2.35.0"
+pandas = "^2.2.3"
+google-cloud-storage = "^2.18.2"
 
 [tool.poetry.scripts]
 demo = "research_canvas.demo:main"

@@ -1,0 +1,4 @@
+curl -X POST http://localhost:8000/telegram/subscribe \
+  -H "Content-Type: application/json" \
+  -d '{"channel": "https://t.me/abualiexpress"}'
+
