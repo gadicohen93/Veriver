@@ -9,6 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { PlusCircle, Plus } from "lucide-react";
 import { Resource } from "@/lib/types";
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@/components/ui/popover";
+import { ComboboxDemo } from "./Combobox";
 
 type ViewmoreDialogProps = {
 	isOpen: boolean;
@@ -63,10 +69,13 @@ export function ViewmoreDialog({
 							))}
 						</div>
 					</div>
-					<div className=" border border-gray-300 p-4  rounded-lg">
-						<label className="text-4xl font-bold block mb-4">
+					<div className="border border-gray-300 p-4 rounded-lg flex flex-col items-center">
+						<label className="text-4xl font-bold block mb-4 text-center">
 							Grade Evaluation Selection
 						</label>
+						<Popover>
+							<ComboboxDemo />
+						</Popover>
 					</div>
 				</div>
 				<Button
