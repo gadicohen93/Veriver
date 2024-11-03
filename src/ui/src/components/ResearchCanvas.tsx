@@ -134,7 +134,7 @@ export function ResearchCanvas() {
 			<div>
 				<div>
 					<div className="flex justify-between items-center mb-4">
-						<h2 className="text-lg my-5 font-medium text-primary">
+						{/* <h2 className="text-lg my-5 font-medium text-primary">
 							<AddResourceDialog
 								isOpen={isAddResourceOpen}
 								onOpenChange={setIsAddResourceOpen}
@@ -142,7 +142,7 @@ export function ResearchCanvas() {
 								setNewResource={setNewResource}
 								addResource={addResource}
 							/>
-						</h2>
+						</h2> */}
 
 						<EditResourceDialog
 							isOpen={isEditResourceOpen}

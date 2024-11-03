@@ -21,9 +21,13 @@ from google.cloud import bigquery
 from typing import List
 import json
 from datetime import datetime, timedelta
+from fastapi.middleware.cors import CORSMiddleware
 
 # Import the TelegramAuthManager
 from .telegram.auth_manager import TelegramAuthManager
+
+# Import asyncio for background tasks
+import asyncio
 
 
 # Configure logging
@@ -61,6 +65,13 @@ class ChannelMessage(BaseModel):
     forwards: Optional[int]
     has_media: bool
     media_type: Optional[str]
+    media_urls: Optional[List[str]]
+    initial_scores: Optional[dict]
+    requires_investigation: Optional[bool]
+
+    class Config:
+        from_attributes = True
+        json_encoders = {datetime: lambda v: v.isoformat()}
 
 
 class MessageResponse(BaseModel):
@@ -86,7 +97,11 @@ async def lifespan(app: FastAPI):
             # Initialize TelegramMonitor if client is ready
             project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
             if project_id:
-                telegram_monitor = TelegramMonitor(telegram_manager.client, project_id)
+                telegram_monitor = TelegramMonitor(
+                    telegram_manager.client,
+                    project_id,
+                    openai_api_key=os.getenv("OPENAI_API_KEY"),
+                )
             else:
                 logger.warning("GOOGLE_CLOUD_PROJECT environment variable not set")
     except Exception as e:
@@ -100,6 +115,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # Your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Add CopilotKit SDK
 sdk = CopilotKitSDK(
@@ -137,10 +161,16 @@ async def subscribe_to_channel(
                 status_code=500, detail="Telegram monitor not initialized"
             )
 
-        success, message = await telegram_monitor.subscribe_to_channel(
-            subscription.channel
+        # Start subscription in background task
+        task = asyncio.create_task(
+            telegram_monitor.subscribe_to_channel(subscription.channel)
         )
-        return AuthResponse(success=success, message=message)
+
+        # Return immediate response
+        return AuthResponse(
+            success=True,
+            message=f"Started subscription process for {subscription.channel}",
+        )
 
     except Exception as e:
         logger.error(f"Channel subscription error: {e}")
@@ -215,6 +245,26 @@ async def get_status(client: TelegramAuthManager = Depends(get_telegram_client))
 def health():
     """Health check."""
     return {"status": "ok"}
+
+
+@app.get("/telegram/latest-messages", response_model=MessageResponse)
+async def get_latest_messages(
+    limit: int = 10,
+    client: TelegramAuthManager = Depends(get_telegram_client),
+):
+    """Get the latest N messages from monitored channels"""
+    try:
+        if not telegram_monitor:
+            raise HTTPException(
+                status_code=500, detail="Telegram monitor not initialized"
+            )
+
+        messages = await telegram_monitor.get_last_messages(limit)
+        return MessageResponse(messages=messages)
+
+    except Exception as e:
+        logger.error(f"Error retrieving messages: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 def main():

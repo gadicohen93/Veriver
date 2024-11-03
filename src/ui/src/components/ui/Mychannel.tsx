@@ -26,6 +26,24 @@ import {
 } from "./table";
 
 import { fetchLatestTelegramMessages, fetchTelegramMessages } from "../../api"
+import { AddResourceDialog } from "../Addtelegramchannel";
+
+type Message = {
+	message_id: number;
+	text: string;
+	date: string;
+	views?: number;
+	forwards?: number;
+	has_media?: boolean;
+	media_urls?: string[];
+	media_type?: string;
+	initial_scores?: {
+		toxicity: number;
+		veracity: number;
+		risk_level: number;
+	};
+	requires_investigation?: boolean;
+};
 
 const MediaDisplay: React.FC<{ mediaUrls: string[], mediaType: string }> = ({ mediaUrls, mediaType }) => {
 	if (!mediaUrls || mediaUrls.length === 0) return null;
@@ -73,6 +91,72 @@ const MediaDisplay: React.FC<{ mediaUrls: string[], mediaType: string }> = ({ me
 	);
 };
 
+const MessageRow = React.memo(({ message }: { message: Message }) => {
+	return (
+		<TableRow className={message.requires_investigation ? "bg-red-50" : ""}>
+			<TableCell className="font-medium">
+				<div className="space-y-2">
+					<p className="text-sm leading-relaxed">{message.text}</p>
+					{message.has_media && (
+						<MediaDisplay 
+							mediaUrls={message.media_urls || []} 
+							mediaType={message.media_type || ''}
+						/>
+					)}
+				</div>
+			</TableCell>
+			<TableCell className="text-right">{message.views || 0}</TableCell>
+			<TableCell className="text-right">{message.forwards || 0}</TableCell>
+			<TableCell>{new Date(message.date).toLocaleString()}</TableCell>
+			<TableCell>
+				{message.initial_scores && (
+					<div className="space-y-1 text-sm">
+						<div>Toxicity: {(message.initial_scores.toxicity * 100).toFixed(1)}%</div>
+						<div>Veracity: {(message.initial_scores.veracity * 100).toFixed(1)}%</div>
+						<div>Risk: {(message.initial_scores.risk_level * 100).toFixed(1)}%</div>
+					</div>
+				)}
+			</TableCell>
+		</TableRow>
+	);
+});
+MessageRow.displayName = 'MessageRow';
+
+const MessageList = React.memo(({ messages }: { messages: Message[] }) => {
+	return (
+		<Table>
+			<TableHeader>
+				<TableRow>
+					<TableHead className="w-[40%]">Message</TableHead>
+					<TableHead className="w-[10%] text-right">Views</TableHead>
+					<TableHead className="w-[10%] text-right">Forwards</TableHead>
+					<TableHead className="w-[20%]">Date</TableHead>
+					<TableHead className="w-[20%]">Analysis Scores</TableHead>
+				</TableRow>
+			</TableHeader>
+			<TableBody>
+				{messages.map((message) => (
+					<MessageRow key={message.message_id} message={message} />
+				))}
+			</TableBody>
+		</Table>
+	);
+});
+MessageList.displayName = 'MessageList';
+
+const TableSortHeader = React.memo(({ onSort, sortDirection }: { 
+	onSort: () => void, 
+	sortDirection: 'asc' | 'desc' 
+}) => (
+	<div 
+		className="cursor-pointer hover:text-gray-700"
+		onClick={onSort}
+	>
+		Date {sortDirection === 'asc' ? '↑' : '↓'}
+	</div>
+));
+TableSortHeader.displayName = 'TableSortHeader';
+
 const ChannelButtons: React.FC = () => {
 	const [selectedChannel, setSelectedChannel] = useState("channel1");
 	const { model } = useModelSelectorContext();
@@ -108,30 +192,35 @@ const ChannelButtons: React.FC = () => {
 	const POLLING_INTERVAL = 5000; // 5 seconds
 
 	const loadMessages = useCallback(async (isInitial: boolean = false) => {
-		setIsLoading(isInitial); // Only show loading state on initial load
+		setIsLoading(isInitial);
 		try {
 			const response = await fetchLatestTelegramMessages();
 			if (isInitial) {
 				setMessages(response.messages);
 				setLatestMessageId(response.messages[0]?.message_id ?? null);
 			} else {
-				// For subsequent polls, merge new messages without duplicates
-				const newMessages = response.messages.filter(
-					(newMsg: any) => newMsg.message_id > (latestMessageId ?? 0)
-				);
-				
-				if (newMessages.length > 0) {
-					setMessages(prevMessages => {
-						const merged = [...newMessages, ...prevMessages];
-						// Keep sorted by date if that's the current sort direction
-						if (sortDirection === 'desc') {
-							merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-						} else {
-							merged.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+				setMessages(prevMessages => {
+					// Create a Map of existing messages for O(1) lookup and updates
+					const messageMap = new Map(
+						prevMessages.map(msg => [msg.message_id, msg])
+					);
+					
+					// Update existing messages and add new ones
+					response.messages.forEach((newMsg: { message_id: any; }) => {
+						if (!messageMap.has(newMsg.message_id)) {
+							messageMap.set(newMsg.message_id, newMsg);
 						}
-						return merged;
 					});
-					setLatestMessageId(newMessages[0].message_id);
+					
+					// Convert back to array and sort
+					const allMessages = Array.from(messageMap.values());
+					return sortDirection === 'desc' 
+						? allMessages.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+						: allMessages.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+				});
+				
+				if (response.messages.length > 0) {
+					setLatestMessageId(response.messages[0].message_id);
 				}
 			}
 		} catch (err) {
@@ -139,20 +228,21 @@ const ChannelButtons: React.FC = () => {
 		} finally {
 			setIsLoading(false);
 		}
-	}, [latestMessageId, sortDirection]);
+	}, [sortDirection]);
+
+	// Memoize the message loading function
+	const handleLoadMessages = useCallback(() => {
+		loadMessages(false);
+	}, [loadMessages]);
 
 	useEffect(() => {
 		loadMessages(true);
 	}, [loadMessages, selectedChannel]);
 
 	useEffect(() => {
-		const pollInterval = setInterval(() => {
-			loadMessages(false);
-		}, POLLING_INTERVAL);
-
-		// Cleanup on unmount
+		const pollInterval = setInterval(handleLoadMessages, POLLING_INTERVAL);
 		return () => clearInterval(pollInterval);
-	}, [selectedChannel, latestMessageId, sortDirection, loadMessages]);
+	}, [handleLoadMessages]);
 
 	const [newResource, setNewResource] = useState<Resource>({
 		url: "",
@@ -196,88 +286,57 @@ const ChannelButtons: React.FC = () => {
 		}
 	};
 
-	const handleDateSort = () => {
-		const sortedMessages = [...messages].sort((a, b) => {
-			const dateA = new Date(a.date).getTime();
-			const dateB = new Date(b.date).getTime();
-			return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
-		});
-		setMessages(sortedMessages);
-		setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-	};
+	// Memoize the sort handler
+	const handleDateSort = useCallback(() => {
+		setSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
+	}, []);
+
+	const [isAddChannelOpen, setIsAddChannelOpen] = useState(false);
 
 	return (
-		<Card className="w-full">
-			<CardContent className="p-6">
-				<Tabs 
-					defaultValue={selectedChannel} 
-					onValueChange={setSelectedChannel}
-					className="w-full mb-6"
-				>
-					<TabsList className="w-full">
-						{channels.map((channel) => (
-							<TabsTrigger
-								key={channel.id}
-								value={channel.id}
-								className="flex-1"
-							>
-								{channel.label}
-							</TabsTrigger>
-						))}
-					</TabsList>
-				</Tabs>
+		<>
+			<AddResourceDialog 
+				isOpen={isAddChannelOpen} 
+				onOpenChange={setIsAddChannelOpen} 
+			/>
+			<Card className="w-full">
+				<CardContent className="p-6">
+					<Tabs 
+						defaultValue={selectedChannel} 
+						onValueChange={setSelectedChannel}
+						className="w-full mb-6"
+					>
+						<TabsList className="w-full">
+							{channels.map((channel) => (
+								<TabsTrigger
+									key={channel.id}
+									value={channel.id}
+									className="flex-1"
+								>
+									{channel.label}
+								</TabsTrigger>
+							))}
+						</TabsList>
+					</Tabs>
 
-				{isLoading ? (
-					<div className="space-y-3">
-						<Skeleton className="h-20 w-full" />
-						<Skeleton className="h-20 w-full" />
-						<Skeleton className="h-20 w-full" />
-					</div>
-				) : error ? (
-					<div className="flex items-center justify-center p-6 text-red-500">
-						<span className="text-sm font-medium">{error}</span>
-					</div>
-				) : (
-					<ScrollArea className="h-[600px] rounded-md border">
-						<Table>
-							<TableHeader>
-								<TableRow>
-									<TableHead className="w-[50%]">Message</TableHead>
-									<TableHead className="w-[15%] text-right">Views</TableHead>
-									<TableHead className="w-[15%] text-right">Forwards</TableHead>
-									<TableHead 
-										className="w-[20%] cursor-pointer hover:text-gray-700"
-										onClick={handleDateSort}
-									>
-										Date {sortDirection === 'asc' ? '↑' : '↓'}
-									</TableHead>
-								</TableRow>
-							</TableHeader>
-							<TableBody>
-								{messages.map((message) => (
-									<TableRow key={message.message_id}>
-										<TableCell className="font-medium">
-											<div className="space-y-2">
-												<p className="text-sm leading-relaxed">{message.text}</p>
-												{message.has_media && (
-													<MediaDisplay 
-														mediaUrls={message.media_urls || []} 
-														mediaType={message.media_type || ''}
-													/>
-												)}
-											</div>
-										</TableCell>
-										<TableCell className="text-right">{message.views || 0}</TableCell>
-										<TableCell className="text-right">{message.forwards || 0}</TableCell>
-										<TableCell>{new Date(message.date).toLocaleString()}</TableCell>
-									</TableRow>
-								))}
-							</TableBody>
-						</Table>
-					</ScrollArea>
-				)}
-			</CardContent>
-		</Card>
+					{isLoading ? (
+						<div className="space-y-3">
+							<Skeleton className="h-20 w-full" />
+							<Skeleton className="h-20 w-full" />
+							<Skeleton className="h-20 w-full" />
+						</div>
+					) : error ? (
+						<div className="flex items-center justify-center p-6 text-red-500">
+							<span className="text-sm font-medium">{error}</span>
+						</div>
+					) : (
+						<ScrollArea className="h-[600px] rounded-md border">
+							<MessageList messages={messages} />
+						</ScrollArea>
+					)}
+				</CardContent>
+			</Card>
+		</>
 	);
 };
 
