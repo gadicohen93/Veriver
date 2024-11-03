@@ -21,3 +21,6 @@ node_modules
 # all secrets like service-account.json
 service-account.json
 **/service-account.json
+
+# all media folders
+**/media
