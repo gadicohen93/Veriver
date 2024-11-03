@@ -15,3 +15,9 @@ node_modules
 **/.env
 # all nested python poetry files
 **/.venv
+
+# all session files
+**/.session
+# all secrets like service-account.json
+service-account.json
+**/service-account.json
