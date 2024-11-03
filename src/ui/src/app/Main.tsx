@@ -24,7 +24,7 @@ export default function Main() {
 				<h1 className="flex h-[60px] bg-[#0E103D] text-white items-center px-10 text-2xl font-medium">
 					Veriver - The Misinformation Analysis Platform
 				</h1>
-				<ScoringTable />
+				{/* <ScoringTable /> */}
 				<ResearchCanvas />
 			</div>
 		</>

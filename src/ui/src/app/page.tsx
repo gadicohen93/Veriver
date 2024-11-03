@@ -15,7 +15,7 @@ export default function Home() {
       >
         <Main />
       </CopilotKit>
-      <ModelSelector />
+      {/* <ModelSelector /> */}
     </ModelSelectorProvider>
   );
 }

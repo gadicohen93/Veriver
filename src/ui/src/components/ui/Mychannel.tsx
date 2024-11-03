@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { ViewmoreDialog } from "./ViewmoreDialog";
 import { useModelSelectorContext } from "@/lib/model-selector-provider";
@@ -9,6 +9,10 @@ import {
 	useCopilotAction,
 } from "@copilotkit/react-core";
 import { Progress } from "../Progress";
+import { Card, CardContent } from "@/components/ui/card"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ScrollArea } from "@/components/ui/scroll-area"
+import { Skeleton } from "@/components/ui/skeleton"
 
 import {
 	Table,
@@ -20,6 +24,54 @@ import {
 	TableHeader,
 	TableRow,
 } from "./table";
+
+import { fetchLatestTelegramMessages, fetchTelegramMessages } from "../../api"
+
+const MediaDisplay: React.FC<{ mediaUrls: string[], mediaType: string }> = ({ mediaUrls, mediaType }) => {
+	if (!mediaUrls || mediaUrls.length === 0) return null;
+
+	return (
+		<div className="flex flex-wrap gap-2">
+			{mediaUrls.map((url, index) => {
+				if (mediaType.toLowerCase().includes('photo')) {
+					return (
+						// eslint-disable-next-line @next/next/no-img-element
+						<img 
+							key={index}
+							src={url} 
+							alt="Message media"
+							className="max-w-[200px] h-auto rounded-lg cursor-pointer hover:opacity-90"
+							onClick={() => window.open(url, '_blank')}
+						/>
+					);
+				} else if (mediaType.toLowerCase().includes('video')) {
+					return (
+						<video 
+							key={index}
+							controls
+							className="max-w-[200px] h-auto rounded-lg"
+						>
+							<source src={url} type="video/mp4" />
+							Your browser does not support the video tag.
+						</video>
+					);
+				} else {
+					return (
+						<a 
+							key={index}
+							href={url} 
+							target="_blank" 
+							rel="noopener noreferrer"
+							className="text-blue-500 hover:underline"
+						>
+							View Media
+						</a>
+					);
+				}
+			})}
+		</div>
+	);
+};
 
 const ChannelButtons: React.FC = () => {
 	const [selectedChannel, setSelectedChannel] = useState("channel1");
@@ -47,57 +99,61 @@ const ChannelButtons: React.FC = () => {
 		{ id: "channel3", label: "Channel 3" },
 	];
 
-	const messagesarray = [
-		{
-			tgmessage: "Message 1",
-			agentscore: "3",
-			agentsummary: "Pull in Agent Summary",
-			AgentAnalysis: "Add View More Button",
-		},
-		{
-			tgmessage: "Message 2",
-			agentscore: "4",
-			agentsummary: "Pull in Agent Summary",
-			AgentAnalysis: "Add View More Button",
-		},
-		{
-			tgmessage: "Message 3",
-			agentscore: "5",
-			agentsummary: "Pull in Agent Summary",
-			AgentAnalysis: "Add View More Button",
-		},
-		{
-			tgmessage: "Message 4",
-			agentscore: "10",
-			agentsummary: "Pull in Agent Summary",
-			AgentAnalysis: "Add View More Button",
-		},
-		{
-			tgmessage: "Message 5",
-			agentscore: "8",
-			agentsummary: "Pull in Agent Summary",
-			AgentAnalysis: "Add View More Button",
-		},
-		{
-			tgmessage: "Message 6",
-			agentscore: "7",
-			agentsummary: "Pull in Agent Summary",
-			AgentAnalysis: "Add View More Button",
-		},
-		{
-			tgmessage: "Message 7",
-			agentscore: "5",
-			agentsummary: "Pull in Agent Summary",
-			AgentAnalysis: "Add View More Button",
-		},
-	];
+	const [messages, setMessages] = useState<any[]>([]);
+	const [isLoading, setIsLoading] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
 
-	const resources: Resource[] = state.resources || [];
-	const setResources = (resources: Resource[]) => {
-		setState({ ...state, resources });
-	};
+	const [latestMessageId, setLatestMessageId] = useState<number | null>(null);
+	const POLLING_INTERVAL = 5000; // 5 seconds
 
-	// const [resources, setResources] = useState<Resource[]>(dummyResources);
+	const loadMessages = useCallback(async (isInitial: boolean = false) => {
+		setIsLoading(isInitial); // Only show loading state on initial load
+		try {
+			const response = await fetchLatestTelegramMessages();
+			if (isInitial) {
+				setMessages(response.messages);
+				setLatestMessageId(response.messages[0]?.message_id ?? null);
+			} else {
+				// For subsequent polls, merge new messages without duplicates
+				const newMessages = response.messages.filter(
+					(newMsg: any) => newMsg.message_id > (latestMessageId ?? 0)
+				);
+				
+				if (newMessages.length > 0) {
+					setMessages(prevMessages => {
+						const merged = [...newMessages, ...prevMessages];
+						// Keep sorted by date if that's the current sort direction
+						if (sortDirection === 'desc') {
+							merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+						} else {
+							merged.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+						}
+						return merged;
+					});
+					setLatestMessageId(newMessages[0].message_id);
+				}
+			}
+		} catch (err) {
+			setError(err instanceof Error ? err.message : 'Failed to load messages');
+		} finally {
+			setIsLoading(false);
+		}
+	}, [latestMessageId, sortDirection]);
+
+	useEffect(() => {
+		loadMessages(true);
+	}, [loadMessages, selectedChannel]);
+
+	useEffect(() => {
+		const pollInterval = setInterval(() => {
+			loadMessages(false);
+		}, POLLING_INTERVAL);
+
+		// Cleanup on unmount
+		return () => clearInterval(pollInterval);
+	}, [selectedChannel, latestMessageId, sortDirection, loadMessages]);
+
 	const [newResource, setNewResource] = useState<Resource>({
 		url: "",
 		title: "",
@@ -107,16 +163,14 @@ const ChannelButtons: React.FC = () => {
 
 	const addResource = () => {
 		if (newResource.url) {
-			setResources([...resources, { ...newResource }]);
+			setState({ ...state, resources: [...state.resources, { ...newResource }] });
 			setNewResource({ url: "", title: "", description: "" });
 			setIsAddResourceOpen(false);
 		}
 	};
 
 	const removeResource = (url: string) => {
-		setResources(
-			resources.filter((resource: Resource) => resource.url !== url)
-		);
+		setState({ ...state, resources: state.resources.filter((resource: Resource) => resource.url !== url) });
 	};
 
 	const [editResource, setEditResource] = useState<Resource | null>(null);
@@ -131,80 +185,99 @@ const ChannelButtons: React.FC = () => {
 
 	const updateResource = () => {
 		if (editResource && originalUrl) {
-			setResources(
-				resources.map((resource) =>
-					resource.url === originalUrl
-						? { ...editResource }
-						: resource
-				)
-			);
+			setState({ ...state, resources: state.resources.map((resource) =>
+				resource.url === originalUrl
+					? { ...editResource }
+					: resource
+			) });
 			setEditResource(null);
 			setOriginalUrl(null);
 			setIsEditResourceOpen(false);
 		}
 	};
 
+	const handleDateSort = () => {
+		const sortedMessages = [...messages].sort((a, b) => {
+			const dateA = new Date(a.date).getTime();
+			const dateB = new Date(b.date).getTime();
+			return sortDirection === 'asc' ? dateA - dateB : dateB - dateA;
+		});
+		setMessages(sortedMessages);
+		setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+	};
+
 	return (
-		<div className="container">
-			<div className="flex justify-around bg-gray-200 p-4 rounded-lg shadow-md">
-				{channels.map((channel) => (
-					<Button
-						key={channel.id}
-						className={`flex-1 p-3 mx-1 text-white rounded-lg transition-all ${
-							selectedChannel === channel.id
-								? "bg-blue-500"
-								: "bg-gray-400"
-						}`}
-						onClick={() => setSelectedChannel(channel.id)}
-					>
-						{channel.label}
-					</Button>
-				))}
-			</div>
-			<Table>
-				<TableHeader>
-					<TableRow>
-						<TableHead className="w-[100px]">Message</TableHead>
-						<TableHead>Score</TableHead>
-						<TableHead>Summary</TableHead>
-						<TableHead>Agent Analysis</TableHead>
-						<TableHead>Human Action</TableHead>
-					</TableRow>
-				</TableHeader>
-				<TableBody>
-					{messagesarray.map((tgmessage) => (
-						<TableRow key={tgmessage.tgmessage}>
-							<TableCell className="font-medium">
-								{tgmessage.tgmessage}
-							</TableCell>
-							<TableCell>{tgmessage.agentscore}</TableCell>
-							<TableCell>{tgmessage.agentsummary}</TableCell>
-							<TableCell>
-								<ViewmoreDialog
-									isOpen={isAddResourceOpen}
-									onOpenChange={setIsAddResourceOpen}
-									newResource={newResource}
-									setNewResource={setNewResource}
-									addResource={addResource}
-								/>
-							</TableCell>
-							<TableCell>
-								{/* <Button
-									className={`flex-1 p-3 mx-1 text-white rounded-lg transition-all ${"bg-blue-500 shadow-lg"}`}
-								>
-									Response to Analysis
-								</Button> */}
-							</TableCell>
-						</TableRow>
-					))}
-				</TableBody>
-				<Button
-					className={` text-white rounded-lg transition-all ${"bg-blue-500 shadow-lg"}`}
+		<Card className="w-full">
+			<CardContent className="p-6">
+				<Tabs 
+					defaultValue={selectedChannel} 
+					onValueChange={setSelectedChannel}
+					className="w-full mb-6"
 				>
-					Load More Messages
-				</Button>
-			</Table>
-		</div>
+					<TabsList className="w-full">
+						{channels.map((channel) => (
+							<TabsTrigger
+								key={channel.id}
+								value={channel.id}
+								className="flex-1"
+							>
+								{channel.label}
+							</TabsTrigger>
+						))}
+					</TabsList>
+				</Tabs>
+
+				{isLoading ? (
+					<div className="space-y-3">
+						<Skeleton className="h-20 w-full" />
+						<Skeleton className="h-20 w-full" />
+						<Skeleton className="h-20 w-full" />
+					</div>
+				) : error ? (
+					<div className="flex items-center justify-center p-6 text-red-500">
+						<span className="text-sm font-medium">{error}</span>
+					</div>
+				) : (
+					<ScrollArea className="h-[600px] rounded-md border">
+						<Table>
+							<TableHeader>
+								<TableRow>
+									<TableHead className="w-[50%]">Message</TableHead>
+									<TableHead className="w-[15%] text-right">Views</TableHead>
+									<TableHead className="w-[15%] text-right">Forwards</TableHead>
+									<TableHead 
+										className="w-[20%] cursor-pointer hover:text-gray-700"
+										onClick={handleDateSort}
+									>
+										Date {sortDirection === 'asc' ? '↑' : '↓'}
+									</TableHead>
+								</TableRow>
+							</TableHeader>
+							<TableBody>
+								{messages.map((message) => (
+									<TableRow key={message.message_id}>
+										<TableCell className="font-medium">
+											<div className="space-y-2">
+												<p className="text-sm leading-relaxed">{message.text}</p>
+												{message.has_media && (
+													<MediaDisplay 
+														mediaUrls={message.media_urls || []} 
+														mediaType={message.media_type || ''}
+													/>
+												)}
+											</div>
+										</TableCell>
+										<TableCell className="text-right">{message.views || 0}</TableCell>
+										<TableCell className="text-right">{message.forwards || 0}</TableCell>
+										<TableCell>{new Date(message.date).toLocaleString()}</TableCell>
+									</TableRow>
+								))}
+							</TableBody>
+						</Table>
+					</ScrollArea>
+				)}
+			</CardContent>
+		</Card>
 	);
 };
 

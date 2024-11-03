@@ -168,9 +168,9 @@ export function ResearchCanvas() {
 				</div>
 
 				<div className=" ">
-					<h2 className="text-lg ml-5  font-bold mb-3 text-primary underline">
+					{/* <h2 className="text-lg ml-5  font-bold mb-3 text-primary underline">
 						My Channels
-					</h2>
+					</h2> */}
 
 					<BasicDropdown />
 					{/* <Textarea
