@@ -1,5 +1,15 @@
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ViewmoreDialog } from "./ViewmoreDialog";
+import { useModelSelectorContext } from "@/lib/model-selector-provider";
+import { AgentState, Resource } from "@/lib/types";
+import {
+	useCoAgent,
+	useCoAgentStateRender,
+	useCopilotAction,
+} from "@copilotkit/react-core";
+import { Progress } from "../Progress";
+
 import {
 	Table,
 	TableBody,
@@ -13,6 +23,23 @@ import {
 
 const ChannelButtons: React.FC = () => {
 	const [selectedChannel, setSelectedChannel] = useState("channel1");
+	const { model } = useModelSelectorContext();
+	const { state, setState } = useCoAgent<AgentState>({
+		name: "research_agent",
+		initialState: {
+			model,
+		},
+	});
+
+	useCoAgentStateRender({
+		name: "research_agent",
+		render: ({ state, nodeName, status }) => {
+			if (!state.logs || state.logs.length === 0) {
+				return null;
+			}
+			return <Progress logs={state.logs} />;
+		},
+	});
 
 	const channels = [
 		{ id: "channel1", label: "Channel 1" },
@@ -65,6 +92,58 @@ const ChannelButtons: React.FC = () => {
 		},
 	];
 
+	const resources: Resource[] = state.resources || [];
+	const setResources = (resources: Resource[]) => {
+		setState({ ...state, resources });
+	};
+
+	// const [resources, setResources] = useState<Resource[]>(dummyResources);
+	const [newResource, setNewResource] = useState<Resource>({
+		url: "",
+		title: "",
+		description: "",
+	});
+	const [isAddResourceOpen, setIsAddResourceOpen] = useState(false);
+
+	const addResource = () => {
+		if (newResource.url) {
+			setResources([...resources, { ...newResource }]);
+			setNewResource({ url: "", title: "", description: "" });
+			setIsAddResourceOpen(false);
+		}
+	};
+
+	const removeResource = (url: string) => {
+		setResources(
+			resources.filter((resource: Resource) => resource.url !== url)
+		);
+	};
+
+	const [editResource, setEditResource] = useState<Resource | null>(null);
+	const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+	const [isEditResourceOpen, setIsEditResourceOpen] = useState(false);
+
+	const handleCardClick = (resource: Resource) => {
+		setEditResource({ ...resource }); // Ensure a new object is created
+		setOriginalUrl(resource.url); // Store the original URL
+		setIsEditResourceOpen(true);
+	};
+
+	const updateResource = () => {
+		if (editResource && originalUrl) {
+			setResources(
+				resources.map((resource) =>
+					resource.url === originalUrl
+						? { ...editResource }
+						: resource
+				)
+			);
+			setEditResource(null);
+			setOriginalUrl(null);
+			setIsEditResourceOpen(false);
+		}
+	};
+
 	return (
 		<div className="container">
 			<div className="flex justify-around bg-gray-200 p-4 rounded-lg shadow-md">
@@ -89,9 +168,7 @@ const ChannelButtons: React.FC = () => {
 						<TableHead>Score</TableHead>
 						<TableHead>Summary</TableHead>
 						<TableHead>Agent Analysis</TableHead>
-						<TableHead className="text-right">
-							Human Action
-						</TableHead>
+						<TableHead>Human Action</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody>
@@ -102,13 +179,21 @@ const ChannelButtons: React.FC = () => {
 							</TableCell>
 							<TableCell>{tgmessage.agentscore}</TableCell>
 							<TableCell>{tgmessage.agentsummary}</TableCell>
-							<TableCell>{tgmessage.AgentAnalysis}</TableCell>
-							<TableCell className="text-right">
-								<Button
+							<TableCell>
+								<ViewmoreDialog
+									isOpen={isAddResourceOpen}
+									onOpenChange={setIsAddResourceOpen}
+									newResource={newResource}
+									setNewResource={setNewResource}
+									addResource={addResource}
+								/>
+							</TableCell>
+							<TableCell>
+								{/* <Button
 									className={`flex-1 p-3 mx-1 text-white rounded-lg transition-all ${"bg-blue-500 shadow-lg"}`}
 								>
 									Response to Analysis
-								</Button>
+								</Button> */}
 							</TableCell>
 						</TableRow>
 					))}
